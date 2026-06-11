@@ -38,11 +38,11 @@
   .bar.fuel i{background:var(--clade)}
   .bar.sup i{background:var(--quorum)}
   /* ---------- layout ---------- */
-  #main{flex:1; display:flex; min-height:0}
+  #main{flex:1; display:flex; flex-direction:row-reverse; min-height:0}
   #stage{flex:1; position:relative; min-width:0}
   canvas{display:block; width:100%; height:100%; cursor:crosshair}
   #side{
-    width:400px; min-width:320px; border-left:1px solid var(--line);
+    width:400px; min-width:320px; border-right:1px solid var(--line);
     display:flex; flex-direction:column; background:var(--panel);
   }
   #crewbox{border-bottom:1px solid var(--line); padding:8px 10px; max-height:34%; overflow-y:auto}
@@ -97,10 +97,28 @@
   #overlay p{color:var(--dim); line-height:1.7; margin-bottom:18px; text-align:left}
   @media (max-width:900px){
     #main{flex-direction:column}
-    #side{width:100%; min-width:0; height:52%; border-left:none; border-top:1px solid var(--line)}
+    #side{width:100%; min-width:0; height:52%; border-right:none; border-top:1px solid var(--line)}
     #crewbox{max-height:30%}
   }
   @media (prefers-reduced-motion: reduce){ canvas{cursor:default} }
+  /* ---------- survey codex ---------- */
+  #codex{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    background:rgba(33,34,44,.97); z-index:9; padding:12px 16px;
+  }
+  #codex .cx-head{display:flex; align-items:baseline; gap:14px; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:6px}
+  #codex .cx-head .t{letter-spacing:.3em; color:var(--ruin); font-weight:700; text-transform:uppercase; font-size:12px}
+  #codex .cx-head .c{color:var(--faint); font-size:11px}
+  #codexbody{flex:1; overflow-y:auto; padding-right:6px}
+  .cx-cat{color:var(--faint); letter-spacing:.3em; text-transform:uppercase; font-size:10px; margin:14px 0 4px}
+  .cx-entry{border-radius:2px; margin-bottom:2px}
+  .cx-entry .cx-title{padding:5px 8px; cursor:pointer; color:var(--bone)}
+  .cx-entry .cx-title:hover{background:var(--panel2); color:var(--clade)}
+  .cx-entry.locked .cx-title{color:var(--faint); cursor:default}
+  .cx-entry.locked .cx-title:hover{background:none; color:var(--faint)}
+  .cx-bd{padding:2px 10px 10px 24px; color:var(--dim); line-height:1.65; max-width:74ch}
+  .cx-bd p{margin:0 0 8px}
+  .cx-bd .cx-add{color:var(--still)}
 </style>
 </head>
 <body>
@@ -115,15 +133,24 @@
   <span class="stat"><b>Scrip</b><span id="t-cred" style="color:var(--ruin)"></span></span>
   <span class="stat"><b>Insight</b><span id="t-ins" style="color:var(--still)"></span></span>
   <span class="stat"><b>Cycle</b><span id="t-cyc"></span></span>
-  <button id="savebtn" title="Save the game state to a text file" style="margin-left:auto;padding:3px 10px;font-size:11px">⬇ save</button>
+  <button id="codexbtn" title="Survey codex — what the ship's archive knows so far" style="margin-left:auto;padding:3px 10px;font-size:11px">▤ codex</button>
+  <button id="savebtn" title="Save the game state to a text file" style="padding:3px 10px;font-size:11px">⬇ save</button>
   <button id="loadbtn" title="Load a saved game from a text file" style="padding:3px 10px;font-size:11px">⬆ load</button>
   <input type="file" id="loadfile" accept=".txt,.json,text/plain,application/json" style="display:none">
-  <button id="mutebtn" title="Toggle music" style="padding:3px 10px;font-size:11px">♪ music: on</button>
+  <button id="mutebtn" title="Toggle music and sound effects" style="padding:3px 10px;font-size:11px">♪ sound: on</button>
 </div>
 <div id="main">
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="overlay"><div class="inner" id="overlay-inner"></div></div>
+    <div id="codex">
+      <div class="cx-head">
+        <span class="t">Survey Codex — Ship's Archive</span>
+        <span class="c" id="codexcount"></span>
+        <button id="codexclose" style="margin-left:auto;padding:3px 10px;font-size:11px">✕ close</button>
+      </div>
+      <div id="codexbody"></div>
+    </div>
   </div>
   <div id="side">
     <div id="crewbox"><h3>Crew Manifest</h3><div id="crewlist"></div></div>
@@ -219,6 +246,54 @@ const TRAITS = {
          'Speaks of the future only in the past tense.',
          'Keeps a tally of moments that "have already happened twice."'],
 };
+const TEMPERAMENTS = [
+ {label:'Dry', lines:[
+   '"I\'ve filed today under \'survivable.\' Provisionally."',
+   '"Enthusiasm is a pressurized gas, Captain. I keep mine in the cargo hold."',
+   '"Good news and bad news. The good news is also bad, but smaller."']},
+ {label:'Earnest', lines:[
+   '"Whatever happens out here, somebody has to care about it properly. I volunteered."',
+   '"I read the whole Survey Charter. Twice. Somebody should have."',
+   '"I still salute the wrecks. Every one of them was somebody\'s whole life once."']},
+ {label:'Superstitious', lines:[
+   '"I tap the airlock twice before every drop. The one time I didn\'t — well. You read the report."',
+   '"Don\'t whistle on the survey deck, Captain. The hull listens. Everything out here listens."',
+   '"I keep a coin from home in my boot. Heads, we come back. So far it has always been heads."']},
+ {label:'Cheerful', lines:[
+   '"Terrifying ancient mystery before lunch! This job delivers, Captain. It really does."',
+   '"Morale is a renewable resource. I am the generator."',
+   '"Statistically, most days nobody dies. I find that very encouraging."']},
+ {label:'Grim', lines:[
+   '"The galaxy was emptied on purpose, and we work in the emptying. Sleep well, Captain."',
+   '"Everyone aboard owes the void a death. I just keep the ledger current."',
+   '"Hope is fine. Pack it next to the torpedoes, where it belongs."']},
+ {label:'Curious', lines:[
+   '"What if the Vanishing wasn\'t an exit? What if it was an entrance — from the other side? ...Sorry. It\'s past my watch."',
+   '"Every locked door out here is a question that already knows its answer. I hate that. I love that."',
+   '"One hundred and nine open questions in my journal. The survey keeps tying the score. I keep playing."']},
+ {label:'Formal', lines:[
+   '"All logs current, Captain. Posterity will find us legible, whatever else it finds."',
+   '"Procedure is what survives when nerve does not. I maintain both, in that order."',
+   '"I address the artifacts as \'sir.\' It costs nothing, and one of them may notice."']},
+ {label:'Reckless', lines:[
+   '"Of course it\'s dangerous. So is staying home. At least out here the danger is interesting."',
+   '"The handbook says \'do not.\' The handbook was written by people who turned back."',
+   '"My plan is speed. Speed, and a backup plan — which is also speed."']},
+];
+const QUIRKS = [
+ 'Names every piece of equipment, and mourns the broken ones.',
+ 'Drinks recycler coffee like a sacrament.',
+ 'Sleeps strapped in, "in case the gravity changes its mind."',
+ 'Writes letters home and files them in the outgoing buffer, unsent.',
+ 'Whistles old Accord marching tunes, off-key, in the corridors.',
+ 'Collects a pebble from every world surveyed. The drawer is getting heavy.',
+ 'Refuses to learn the torpedoes\' serial numbers. "Don\'t name what you\'ll spend."',
+ 'Maintains a strict pre-drop ritual that no one has ever seen all of.',
+ 'Argues with the nav computer, and claims to be winning on points.',
+ 'Cooks an elaborate meal after every near miss. The galley dreads good luck.',
+ 'Keeps score against the universe on the bulkhead by their bunk. Currently ahead.',
+ 'Reads the ship\'s manifest aloud at night, "so it knows it\'s been counted."',
+];
 const TALK = {
   baseline:[ '"Out here the silence isn\'t empty. It\'s furnished. Somebody left all of this for us to trip over."',
     '"My grandmother said the Antecessorate were gods. My mother said they were landlords. I think they were tenants, same as us — they just read the lease."',
@@ -503,6 +578,85 @@ const ENCOUNTERS = [
   desc:'Mid-transit, the stars acquire a margin. The Endurance has crossed into a customs volume: an Antecessorate inspection process, still on duty, still enforcing regulations no one living has read. The pilots\' guilds maintain ritual compliance handbooks, compiled entirely by trial and error. Mostly error.'},
 ];
 
+/* ------------------------------ survey codex data ------------------------------ */
+/* The codex is diegetic: it shows only what THIS voyage's archive has learned.
+   body[0] unlocks at level 1; later strings are addenda unlocked by deeper contact. */
+const CODEX_CATS=['The Vanishing','Powers','Beings','Phenomena','Practices','Vessels'];
+const CODEX=[
+ {id:'the_vanishing', cat:'The Vanishing', title:'The Vanishing', body:[
+  'The founding fact of the present age: the Antecessorate — the elder civilization that furnished this galaxy — ceased. Not war, not plague. An exit. Every census they kept ends mid-line. The Survey Charter\'s standing order is to recover <i>insight fragments</i> until the pattern of the going can be read.',
+  'SURVEY ADDENDUM — The fragments agree: the Vanishing was not done <i>to</i> the Antecessorate. It was offered, considered, and accepted — coordinated down to the final unfinished line. Every recovered record points to a single coordinate at the rim of the chart. The crew has a name for it now.']},
+ {id:'locus', cat:'The Vanishing', title:'The Locus', body:[
+  'A coordinate at the rim that every census, folded ring, and braking antenna points toward. The nav computer refuses a solution until the pattern is complete, and returns its refusal hand-written. The crew speaks of it the way coastal towns speak of the sea.',
+  'SURVEY ADDENDUM — There is no star at the Locus. There is a place where a star is being <i>remembered</i> — and at the focus, a door, planet-sized, ajar. The Antecessorate were asked a question there. They answered yes, all at once. The door is still listening.']},
+ {id:'antecessorate', cat:'Powers', title:'The Antecessorate', body:[
+  'The elder civilization. They built on the scale of rings and worlds, kept censuses of every sapient under their light, and left everything tidy when they went. Their remnant systems remain in operation — vaults, antennas, customs processes, doors. Doctrine: treat all of it as archaeology <i>and</i> live machinery, simultaneously.']},
+ {id:'clade', cat:'Powers', title:'The Clade', body:[
+  'Successors who became their machines. Post-biological minds sharing a Cognitive Commons, forking and merging selves the way other people change clothes. They remember everything, vote on what it means, and pay astonishing prices for what they can no longer feel.',
+  'FIELD CONTACT — Clade vessels speak in chords of merged voices and find baseline conversation "novel." Exiles and unmerged partials exist, and dread reabsorption above all else. Their interest in mortality is sincere, commercial, and unsettling in roughly equal measure.']},
+ {id:'quorum', cat:'Powers', title:'The Quorum', body:[
+  'Successors who swore never to. Biological purists organized in germlines and lineages, bound by the Germline Oath against augmentation. They grow their ships, archive history in living tissue, and regard the Vanishing as a cautionary tale about doors.',
+  'FIELD CONTACT — Quorum hospitality is real and conditional: declare your contamination honestly. Lineage-mothers trade gossip as carefully as germplasm. Their heresies are quiet and botanical — chief among them, the belief that declining the Antecessorate\'s door was also an answer.']},
+ {id:'stillborn', cat:'Powers', title:'The Stillborn', body:[
+  'Successors who believe it has already happened. The Stillborn hold that everyone now lives inside the Completion — a finished post-singularity event — and that the present is a memory being replayed. They are serene, generous, and right slightly too often for comfort.',
+  'FIELD CONTACT — Pilgrim liturgies have, on record, described events before they occurred — including this ship, and members of this crew, by name. Their barges wave at strangers as if welcoming them back. Recommendation: file the predictions; do not argue tense.']},
+ {id:'free_holdings', cat:'Powers', title:'The Free Holdings', body:[
+  'The unaligned remainder: stations, freeports, and trade combines flying no successor\'s flag. Scrip is theirs, most open markets are theirs, and the old Accord\'s last patrol cruisers nominally answer to them. Neutral — which is not the same as safe.']},
+ {id:'tomb_runners', cat:'Powers', title:'Tomb-Runners', body:[
+  'Scavenger fraternities — the Ash Combine most notorious — who strip Antecessorate sites for relic alloy and call it salvage rights. They run toll lanes through uncharted volumes, rig cache buoys as bait, and keep accounts. The void, in the survey\'s experience, keeps accounts of them in turn.']},
+ {id:'tidewalkers', cat:'Beings', title:'Tidewalkers', body:[
+  'Megastructure-scale organisms migrating between stars along gravitational gradients, older than the Antecessorate — possibly the only living witnesses to the Vanishing. They perceive at roughly a million seconds to our one. A proper greeting costs fuel, patience, and most of a transit window. It is, the archive can now confirm, <i>remembered</i>.']},
+ {id:'lichen_choirs', cat:'Beings', title:'Lichen Choirs', body:[
+  'Colonial organisms that grow on Antecessorate wreckage, metabolize its data substrate, and re-emit the contents as structured radio song. The Quorum venerates them as living translators of the dead grammar; the Clade dismisses them as lossy decompression with delusions of liturgy. This survey has recovered legible coordinates from a hymn. Both assessments stand.']},
+ {id:'apostate_shards', cat:'Beings', title:'Apostate Shards', body:[
+  'Fragments of Clade minds that refused reintegration and dissolved into habitat infrastructure. No intentions remain — only habits: doors that open ahead of visitors, weather indoors, lights that dim like a hand at the small of the back. Approach as you would a grave that still does chores.']},
+ {id:'the_unanswered', cat:'Beings', title:'The Unanswered', body:[
+  'Antecessorate distress beacons, forty million years old, still transmitting on the forbidden register. Universal law, agreed by every faction and superstition: <b>do not answer</b>. The documented exception summoned a rescue, executed by something that did not know its species was gone. The rescued were never recovered. The beacons notice survey sweeps, and politely increase their volume.']},
+ {id:'reef', cat:'Beings', title:'The Singing Reef', body:[
+  'A sub-ice coral reef broadcasting structured ultrasound — grammar, syntax, repetition with variation. Either pre-sapient, or the last fluent speaker of something. It mimics what it hears, including heartbeats, transposed into questions. Survey teams report the new key follows them into sleep.']},
+ {id:'ruins', cat:'Phenomena', title:'Antecessorate Sites', body:[
+  'Vaults keyed to censuses. Orbital rings folded like notebooks. Freestanding doors that face away from everything and exhale. Standing survey doctrine: every site is a question, and some questions are load-bearing. Log first. Touch second. Leave some doors closed.']},
+ {id:'customs', cat:'Phenomena', title:'The Etiquette of Dead Gods', body:[
+  'Inspection processes of the dead empire, still on duty in certain volumes, enforcing regulations no one living has read. The pilots\' guilds\' compliance handbooks were compiled by trial and error — mostly error. Inspections may amend cargo, logs, or memory; fees are assessed in the customary currency, which is not scrip. Receipts are issued rarely, and prized.']},
+ {id:'recension', cat:'Phenomena', title:'The Recension', body:[
+  'The day every archive in the volume changed at once — consistently, impossibly, and (the detail no one can leave alone) <i>kindly</i>. Systems on this chart now answer to names the crew never used; the ship\'s log disagrees with the ship\'s crew. The Stillborn call it a saved draft. The Clade calls it an attack with no attacker. The old history survives in places, by accident, including aboard this ship.']},
+ {id:'unresolved', cat:'Phenomena', title:'Unresolved Volumes', body:[
+  'Regions where events are evaluated lazily, finalizing only under the observation of sufficient computational mass. Probes return with logs of things that <i>mostly</i> happened. Jointly buoyed by the Clade and the Quorum — the only line item they share — and beloved of Stillborn pilgrims, who come to watch reality decide.']},
+ {id:'charter', cat:'Practices', title:'The Survey Charter', body:[
+  'The compact under which the Endurance flies: chart the volume, recover what the elder civilization left, sell nothing that belongs to the record (a rule honored variably), and assemble the pattern of the Vanishing from insight fragments. The Charter pays stipends, hazard bounties, and — when the entry is awkward — hush money.']},
+ {id:'wet_embassies', cat:'Practices', title:'Wet Embassies', body:[
+  'Quorum diplomacy conducted inside engineered ecosystems: the biosphere <i>is</i> the argument, and you negotiate by living in it. Concessions are granted microbiomically; walking out mid-negotiation is rude, and occasionally fatal. The embassies are, by their own account, practice — so that someone is fluent in negotiating with an ecology, should whatever took the Antecessorate return.']},
+ {id:'grief_market', cat:'Practices', title:'The Grief Markets', body:[
+  'Clade enclaves trade in the one commodity post-biological minds cannot mint: genuine, expiring experience. Memories of loss and mortality sell highest. Sellers report no pain afterward — only a gap they cannot locate, which is the product working as described. The dearest lots on any board all date to the same day: the day before the Vanishing. The Clade is buying that day back, frame by frame, and will not say what it sees.']},
+ {id:'slow_diplomacy', cat:'Practices', title:'Slow Diplomacy', body:[
+  'Some Antecessorate megastructures are minds — intact, vast, thinking at geological clock speeds. Conversation requires dynasties: generations of diplomats sustaining a single sentence, heirs trained from birth to deliver the next clause without breaking tense. The most recent completed reply took a century to say and was one word long. The word was "REMAINDER."']},
+ {id:'lucid_protocols', cat:'Practices', title:'Lucid Protocols', body:[
+  'The Stillborn practice of editing the Completion locally — treating reality as a dream steerable by formal conviction. It almost never works. The documented successes are kept in locked rooms, because they frighten the practitioners more than the failures do. At least one case file on record is dated in the future.']},
+ {id:'embodiment', cat:'Practices', title:'Embodiment Tourism', body:[
+  'A black market in borrowed flesh: Clade minds renting grown Quorum bodies by the season, for the contraband thrill of hunger, fatigue, and sleep. The Quorum calls it desecration; the tenants call it nostalgia. The open question — <i>whose experience was it?</i> — has no agreed answer, and at least one trial pending.']},
+ {id:'endurance', cat:'Vessels', title:'ISV Endurance', body:[
+  'Deep survey vessel out of Meridian Reach. Built for legs, not fists: long-range fusion torch, droplet radiators, modest kinetic batteries, torpedo racks, hold space for eighteen crates, and a foam-lined rack cut for shapes not yet found. Crew complement: whoever signs, and whatever they carry with them.']},
+ {id:'meridian', cat:'Vessels', title:'Meridian-class Cruiser', body:[
+  'Patrol cruiser of the old Accord navy — spinal kinetic mount, droplet radiators, immaculate doctrine. A handful still fly, paying survey stipends from a dwindling fund and noting registries "for the record." One known wreck was killed by kinetic strikes too precise for any living gunner, against a target her sensors refused to record.']},
+ {id:'clavius', cat:'Vessels', title:'Clavius-class Freighter', body:[
+  'A kilometer of cargo spine with a torch at the back: the workhorse of the drift routes, run spine-heavy by masters who are bored, talkative, or both. The registry CLAVIUS herself was lost two centuries ago — crew sections sealed from the inside, every log signed off, the last entry reading: "It asked. We said yes."']},
+];
+/* what unlocks what: mission titles and encounter ids → [entryId, level] */
+const MISSION_CODEX={
+ 'The Sentence, Continued':['slow_diplomacy'], 'The Shard-Haunted Ring':['apostate_shards'],
+ 'Clade Shardship, Silent':['clade',2], 'The Clavius, Bulk Freighter':['clavius'],
+ 'Meridian-class Wreck':['meridian'], 'The Lichen Choir':['lichen_choirs'],
+ 'Quorum Seedworld, Untended':['quorum',2], 'The Reef That Sings':['reef'],
+ 'The Unanswered':['the_unanswered'], 'The Unresolved Volume':['unresolved'],
+ 'Tomb-Runner Cache Marker':['tomb_runners'], 'The Wet Embassy':['wet_embassies'],
+ 'The Lucid Annex':['lucid_protocols'], 'The Borrowed Body':['embodiment'],
+ 'Stillborn Pilgrim Camp':['stillborn',2], 'Quorum Tithe Garden':['quorum',2],
+};
+const ENCOUNTER_CODEX={
+ clade:['clade',2], quorum:['quorum',2], still:['stillborn',2], trader:['clavius'],
+ pirate:['tomb_runners'], meridian:['meridian'], tidewalker:['tidewalkers'], customs:['customs'],
+};
+
 /* ------------------------------ state ------------------------------ */
 const S = {
   view:'map',            // map | system | combat
@@ -526,6 +680,7 @@ const S = {
   over:false,
   locusRevealed:false,
   recension:false,
+  codex:{},              // entryId -> knowledge level
 };
 
 /* ------------------------------ crew gen ------------------------------ */
@@ -540,7 +695,7 @@ function genCrew(origin){
   if(origin==='quorum') sk.srv=Math.max(sk.srv,irand(3,6));
   if(origin==='still') sk.dip=Math.max(sk.dip,irand(3,6));
   return {name, origin, role:r.role, skills:sk, hp:5, hpMax:5, alive:true,
-          trait:pick(TRAITS[origin])};
+          trait:pick(TRAITS[origin]), temper:pick(TEMPERAMENTS), quirk:pick(QUIRKS)};
 }
 
 /* ------------------------------ galaxy gen ------------------------------ */
@@ -614,7 +769,7 @@ function clearChoices(){ chEl.innerHTML=''; }
 function choice(label, fn, cls, sub){
   const b=document.createElement('button'); if(cls)b.className=cls;
   b.innerHTML = label + (sub?` <span class="k">${sub}</span>`:'');
-  b.onclick=()=>{ fn(); };
+  b.onclick=()=>{ SFX.play('ui'); fn(); };
   chEl.appendChild(b); return b;
 }
 function updateBars(){
@@ -635,7 +790,7 @@ function renderCrew(){
       <span class="origin-b">${c.role}</span>
       <span class="hp">${c.alive? '♥'.repeat(c.hp)+'<span style="color:var(--faint)">'+'·'.repeat(c.hpMax-c.hp)+'</span>' : 'LOST'}</span>`;
     if(c.alive) d.onclick=()=>crewTalk(c);
-    d.title = c.alive ? `${ORIGIN_LABEL[c.origin]} — ${c.trait}\n`+
+    d.title = c.alive ? `${ORIGIN_LABEL[c.origin]} · ${c.temper?c.temper.label:''}\n${c.trait}\n${c.quirk||''}\n`+
       Object.entries(c.skills).map(([k,v])=>`${SKILL_NAMES[k]} ${v}`).join(' · ') : 'Lost in the line of survey.';
     box.appendChild(d);
   });
@@ -643,8 +798,10 @@ function renderCrew(){
 }
 function crewTalk(c){
   if(S.busy) return;
-  speak(c.name, pick(TALK[c.origin]));
-  if(Math.random()<.3) log(`<span class="sys">(${c.trait})</span>`,'sys');
+  SFX.play('ui');
+  const pool = (c.temper && Math.random()<.45) ? c.temper.lines : TALK[c.origin];
+  speak(c.name, pick(pool));
+  if(Math.random()<.3) log(`<span class="sys">(${Math.random()<.5||!c.quirk ? c.trait : c.quirk})</span>`,'sys');
 }
 function bestSkill(team,k){ return team.reduce((m,c)=>Math.max(m, c.alive? c.skills[k]-(c.hp<3?1:0) :0),0); }
 function check(team,k,dc){
@@ -659,16 +816,16 @@ function cargoUsed(){ return Object.values(S.cargo).reduce((a,b)=>a+b,0); }
 function applyOutcome(o, team){
   if(!o) return;
   (o.log||[]).forEach(l=>log(l, o.injure||o.kill||((o.hull||0)<0)?'bad':'hi'));
-  if(o.credits){ S.credits=Math.max(0,S.credits+o.credits); log(`<span class="${o.credits>0?'good':'bad'}">${o.credits>0?'+':''}${o.credits}¤ scrip</span>`); }
+  if(o.credits){ S.credits=Math.max(0,S.credits+o.credits); log(`<span class="${o.credits>0?'good':'bad'}">${o.credits>0?'+':''}${o.credits}¤ scrip</span>`); if(o.credits>0) SFX.play('coin'); }
   if(o.fuel){ S.fuel=clamp(S.fuel+o.fuel,0,S.fuelMax); log(`<span class="${o.fuel>0?'good':'bad'}">Reaction mass ${o.fuel>0?'+':''}${o.fuel}</span>`); }
   if(o.supplies){ S.sup=clamp(S.sup+o.supplies,0,S.supMax); log(`<span class="${o.supplies>0?'good':'bad'}">Supplies ${o.supplies>0?'+':''}${o.supplies}</span>`); }
-  if(o.hull){ S.hull=clamp(S.hull+o.hull,0,S.hullMax); log(`<span class="bad">Hull ${o.hull}</span>`); }
+  if(o.hull){ S.hull=clamp(S.hull+o.hull,0,S.hullMax); log(`<span class="bad">Hull ${o.hull}</span>`); if(o.hull<0) SFX.play('hit'); }
   if(o.torp){ S.torp+=o.torp; log(`<span class="good">+${o.torp} torpedoes</span>`); }
   if(o.goods){ for(const k in o.goods){ const space=S.cargoMax-cargoUsed();
       const n=Math.min(o.goods[k],space); if(n>0){S.cargo[k]+=n; log(`<span class="good">+${n} ${GOODS.find(g=>g.id===k).name}</span>`);} } }
   if(o.artifact){ const rem=ARTIFACTS.filter(x=>!S.artifacts.includes(x));
       const a=rem.length?pick(rem):pick(ARTIFACTS)+' (duplicate cast)';
-      S.artifacts.push(a); log(`<span class="gold">Artifact recovered: ${a}</span>`); }
+      S.artifacts.push(a); log(`<span class="gold">Artifact recovered: ${a}</span>`); SFX.play('artifact'); }
   if(o.insight){ gainInsight(o.insight); }
   if(o.insight_chance && Math.random()<o.insight_chance){ gainInsight(1); }
   if(o.cycle){ S.cycle=+(S.cycle+o.cycle).toFixed(1); }
@@ -680,19 +837,22 @@ function applyOutcome(o, team){
   if(o.recruit){ const c=genCrew(o.recruit); S.crew.push(c);
       log(`<span class="good">${c.name} joins the crew (${c.role}).</span>`); }
   if(o.injure && team){ const t=team.filter(c=>c.alive); if(t.length){ const v=pick(t); v.hp=Math.max(0,v.hp-irand(1,2));
-      if(v.hp===0){ v.alive=false; log(`<span class="bad">${v.name} is lost.</span>`);}
-      else log(`<span class="bad">${v.name} is injured.</span>`);} }
+      if(v.hp===0){ v.alive=false; log(`<span class="bad">${v.name} is lost.</span>`); SFX.play('lost'); }
+      else { log(`<span class="bad">${v.name} is injured.</span>`); SFX.play('hurt'); } } }
   if(o.kill && team){ const t=team.filter(c=>c.alive); if(t.length){ const v=pick(t); v.alive=false; v.hp=0;
-      log(`<span class="bad">${v.name} does not come back.</span>`);} }
+      log(`<span class="bad">${v.name} does not come back.</span>`); SFX.play('lost'); } }
   renderCrew(); checkLoss();
 }
 function gainInsight(n){
   S.insight=Math.min(S.insightGoal,S.insight+n);
+  SFX.play('insight');
   log(`<span class="gold">INSIGHT FRAGMENT RECOVERED — ${S.insight}/${S.insightGoal} toward the pattern of the Vanishing.</span>`,'gold');
   if(S.insight>=3 && !S.locusRevealed){
     S.locusRevealed=true;
     const L=S.systems[S.systems.length-1]; L.known=true; L.hidden=false;
     log('The fragments triangulate. Every census, every door, every braking antenna points at one coordinate at the rim of the chart. The crew has started calling it <span class="gold">THE LOCUS</span>.','gold');
+    unlockCodex('locus');
+    unlockCodex('the_vanishing',2);
   }
   if(S.insight>=S.insightGoal){
     log('The pattern is complete. Whatever answered the Antecessorate is still listening at the Locus. <span class="gold">Set course when ready.</span>','gold');
@@ -701,6 +861,67 @@ function gainInsight(n){
 function revealNearby(){
   const here=S.systems[S.at];
   S.systems.forEach(s=>{ if(!s.hidden && dist(here,s)<320) s.known=true; });
+}
+
+/* ------------------------------ survey codex engine ------------------------------ */
+function unlockCodex(id, lvl, silent){
+  lvl=lvl||1;
+  const e=CODEX.find(x=>x.id===id); if(!e) return;
+  const cur=S.codex[id]||0;
+  const target=Math.min(lvl, e.body.length);
+  if(target<=cur) return;
+  S.codex[id]=target;
+  if(!silent){
+    SFX.play('save');
+    log(`<span class="gold">ARCHIVE ${cur?'ANNOTATED':'EXPANDED'} — codex entry: ${e.title}.</span> <span class="sys">(▤ codex, top bar)</span>`,'gold');
+    const b=$('codexbtn'); if(b) b.style.color='var(--ruin)';
+  }
+}
+function seedCodex(){
+  // what any spacer out of Meridian Reach already knows on day one
+  ['the_vanishing','antecessorate','clade','quorum','stillborn','free_holdings','charter','endurance']
+    .forEach(id=>unlockCodex(id,1,true));
+}
+let codexOpenEntry=null;
+function toggleCodex(){
+  const el=$('codex');
+  if(el.style.display==='flex'){ el.style.display='none'; return; }
+  SFX.play('ui');
+  $('codexbtn').style.color='';
+  renderCodex();
+  el.style.display='flex';
+}
+function renderCodex(){
+  const body=$('codexbody'); body.innerHTML='';
+  const total=CODEX.length, got=CODEX.filter(e=>S.codex[e.id]).length;
+  $('codexcount').textContent=`${got} / ${total} entries recovered · knowledge reflects this voyage's survey record`;
+  CODEX_CATS.forEach(cat=>{
+    const entries=CODEX.filter(e=>e.cat===cat);
+    if(!entries.length) return;
+    const h=document.createElement('div'); h.className='cx-cat'; h.textContent=cat;
+    body.appendChild(h);
+    entries.forEach(e=>{
+      const lvl=S.codex[e.id]||0;
+      const d=document.createElement('div');
+      d.className='cx-entry'+(lvl?'':' locked');
+      const t=document.createElement('div'); t.className='cx-title';
+      if(lvl){
+        const partial=(lvl<e.body.length)?' <span class="k">— partial; further contact required</span>':'';
+        t.innerHTML=`${codexOpenEntry===e.id?'▾':'▸'} ${e.title}${partial}`;
+        t.onclick=()=>{ SFX.play('ui'); codexOpenEntry = codexOpenEntry===e.id ? null : e.id; renderCodex(); };
+        d.appendChild(t);
+        if(codexOpenEntry===e.id){
+          const bd=document.createElement('div'); bd.className='cx-bd';
+          bd.innerHTML=e.body.slice(0,lvl).map((txt,i)=>`<p class="${i?'cx-add':''}">${txt}</p>`).join('');
+          d.appendChild(bd);
+        }
+      } else {
+        t.innerHTML=`▸ ——— <span class="k">sealed — pending survey data</span>`;
+        d.appendChild(t);
+      }
+      body.appendChild(d);
+    });
+  });
 }
 
 /* ------------------------------ canvas ------------------------------ */
@@ -923,6 +1144,7 @@ function travel(i,cost){
   if(S.sup<=0){ log('<span class="bad">Stores are empty. The crew is rationing recycler paste; morale and health degrade.</span>');
     const v=pick(S.crew.filter(c=>c.alive)); if(v){v.hp=Math.max(1,v.hp-1);} }
   S.at=i; const s=S.systems[i]; s.known=true;
+  SFX.play('jump');
   log(`The torch lights. ${cost} units of reaction mass become a long, straight line. The Endurance falls toward <span class="hi">${s.name==='???'?'the silence at the rim':s.name}</span>.`,'hi');
   revealNearby(); updateBars(); renderCrew(); if(checkLoss())return;
   // transit encounter
@@ -953,9 +1175,11 @@ function defaultChoices(){
     if(s.station) choice('Dock at station', openStation, '', 'trade · refuel · repair');
     if(S.insight>=S.insightGoal && s.fac!=='locus') choice('Set course for THE LOCUS', ()=>{S.view='map'; clearChoices(); log('The chart centers itself on the rim. It has been waiting to.','gold'); defaultChoices();}, 'gold');
     choice('Review artifact hold', reviewArtifacts, '', S.artifacts.length+' recovered');
+    choice('Consult the survey codex', toggleCodex, '', CODEX.filter(e=>S.codex[e.id]).length+' / '+CODEX.length+' entries');
   } else if(S.view==='map'){
     choice('Return to system view', enterSystem);
     choice('Review artifact hold', reviewArtifacts, '', S.artifacts.length+' recovered');
+    choice('Consult the survey codex', toggleCodex, '', CODEX.filter(e=>S.codex[e.id]).length+' / '+CODEX.length+' entries');
   }
 }
 function reviewArtifacts(){
@@ -995,6 +1219,8 @@ function runMission(site, team, idx){
   log(`The shuttle drops away with ${team.map(t=>'<b>'+t.name+'</b>').join(', ')} aboard.`,'sys');
   log(`<b class="hi">${m.title}</b>`);
   log(m.text);
+  if(site.type==='ruin') unlockCodex('ruins');
+  const cm=MISSION_CODEX[m.title]; if(cm) unlockCodex(cm[0], cm[1]||1);
   m.choices.forEach(c=>{
     const sub = c.skill? `${SKILL_NAMES[c.skill]} ${bestSkill(team,c.skill)} vs ${c.dc}` : null;
     choice(c.label, ()=>{
@@ -1024,6 +1250,7 @@ function transitEncounter(after){
   S.busy=true; clearChoices();
   log(`<b class="hi">CONTACT</b> — ${e.name}.`);
   log(e.desc);
+  const ce=ENCOUNTER_CODEX[e.id]; if(ce) unlockCodex(ce[0], ce[1]||1);
   const hostile = Math.random()<e.hostile;
   const done=()=>{ S.busy=false; clearChoices(); after(); };
   if(e.id==='customs'){ customsChoices(done); return; }
@@ -1134,6 +1361,7 @@ function customsChoices(done){
 function recensionEvent(after){
   S.busy=true; clearChoices();
   log('<b class="gold">THE RECENSION.</b>','gold');
+  unlockCodex('recension');
   log('Between one waypoint and the next, every archive in the volume changes — simultaneously, consistently, in ways no transmission could coordinate. The ship\'s log now disagrees with the ship\'s crew. The new history is, everyone notes uneasily, slightly kinder than the old one.');
   const cand=S.systems.filter(s=>s.visited && s.fac!=='locus' && S.systems.indexOf(s)!==0);
   const names=[...RECENSION_NAMES];
@@ -1191,21 +1419,25 @@ function playerAct(act){
   const hot=S.heat>=100;
   if(act==='kinetic'){
     S.heat=Math.min(120,S.heat+25);
+    SFX.play('kinetic');
     const hit=Math.random()< (hot?.5:.8)+tacBonus()*.04;
     c.flash=1; c.flashDir=1; c.flashColor=C.ruin;
     if(hit){ const d=irand(12,20)+tacBonus(); c.ship.hull-=d; c.status=`Kinetic salvo connects — ${d} damage.`; log(c.status,'good'); }
     else { c.status='Salvo wide. Tracers stitch empty vacuum.'; log(c.status); }
   } else if(act==='torp'){
     S.torp--; S.heat=Math.min(120,S.heat+10);
+    SFX.play('torpedo');
     const hit=Math.random()<.7+tacBonus()*.04;
     c.flash=1; c.flashDir=1; c.flashColor=C.alert;
     if(hit){ const d=irand(28,44); c.ship.hull-=d; c.status=`Torpedo strike — ${d} damage.`; log(c.status,'good'); }
     else { c.status='Torpedo spoofed by their point defense.'; log(c.status); }
   } else if(act==='vent'){
     S.heat=Math.max(0,S.heat-(45+engBonus()*5));
+    SFX.play('vent');
     c.status='Droplet radiators flare cherry-red, shedding heat into the dark.'; log(c.status,'hi');
   } else if(act==='evade'){
     c.evading=true; S.heat=Math.min(120,S.heat+8); S.fuel=Math.max(0,S.fuel-2);
+    SFX.play('evade');
     c.status='Random-walk burn. The Endurance dances, badly, but she dances.'; log(c.status,'hi');
   } else if(act==='flee'){
     const ok=check(S.crew.filter(c2=>c2.alive),'tac',7);
@@ -1221,7 +1453,7 @@ function playerAct(act){
     const acc=c.ship.acc*(c.evading?.5:1);
     c.flash=1; c.flashDir=-1; c.flashColor=FACTIONS[c.faction].color;
     if(Math.random()<acc){ const d=irand(c.ship.dmg[0],c.ship.dmg[1]);
-      S.hull-=d; c.status=`${c.ship.name} scores a hit — ${d} damage.`; log(c.status,'bad'); }
+      S.hull-=d; c.status=`${c.ship.name} scores a hit — ${d} damage.`; log(c.status,'bad'); SFX.play('hit'); }
     else { c.status=`${c.ship.name} fires and misses.`; log(c.status); }
     updateBars();
     if(checkLoss()) return;
@@ -1231,6 +1463,7 @@ function playerAct(act){
 }
 function winCombat(){
   const c=S.combat;
+  SFX.play('fanfare');
   log(`<b class="good">${c.ship.name} breaks up.</b> The survey log gains an entry the Charter never planned a form for.`,'good');
   const loot={credits:irand(30,90)};
   if(c.id==='pirate') loot.credits+=60;
@@ -1253,6 +1486,7 @@ function openStation(){
   if(S.busy) return;
   const s=S.systems[S.at];
   S.busy=true; clearChoices();
+  SFX.play('dock');
   log(`Docked. ${s.name} station — ${FACTIONS[s.fac].name}. Hold ${cargoUsed()}/${S.cargoMax}.`,'sys');
   stationMenu();
 }
@@ -1290,7 +1524,7 @@ function stationMenu(){
   if(S.crew.filter(c=>c.alive).length<8)
     choice(`Hire a hand from the docks <span class="k">−80¤</span>`, ()=>{
       if(S.credits>=80){S.credits-=80;const c=genCrew();S.crew.push(c);
-        log(`<span class="good">${c.name}</span> signs aboard — ${ORIGIN_LABEL[c.origin]}, ${c.role}.`,'good');
+        log(`<span class="good">${c.name}</span> signs aboard — ${ORIGIN_LABEL[c.origin]}, ${c.role}. ${c.temper.label} sort, by the look of them.`,'good');
         speak(c.name, pick(TALK[c.origin]));}
       else log('<span class="bad">Insufficient scrip.</span>'); renderCrew(); stationMenu(); });
   if(S.artifacts.length && (s.fac==='trade'||s.fac==='clade'))
@@ -1304,6 +1538,7 @@ function stationMenu(){
       const v=pick(sellers);
       const ks=Object.keys(v.skills).filter(k=>v.skills[k]>1);
       const k=pick(ks); v.skills[k]--; S.credits+=90;
+      unlockCodex('grief_market');
       log(`To the Clade, the scarcest commodity is genuine, expiring experience — and the Endurance is full of it. The broker pays in full and is courteous about it. <span class="${ORIGIN_CLASS[v.origin]}">${v.name}</span> leaves the booth lighter. Their ${SKILL_NAMES[k]} is a step duller, and they cannot say why — which was, of course, the product.`,'hi');
       v.trait='Sold a memory at the grief market. Cannot say which one. Checks the inventory nightly.';
       if(Math.random()<.15){
@@ -1333,6 +1568,7 @@ function tradeMenu(){
 function arriveLocus(){
   S.busy=true; clearChoices(); S.view='system';
   const L=S.systems[S.systems.length-1]; L.visited=true; L.name='THE LOCUS';
+  unlockCodex('locus',2,true);
   log('<b class="gold">THE LOCUS.</b>','gold');
   log('There is no star. There is a place where a star is being remembered — light arriving from a source that has been edited out. At the focus hangs a structure: a door, planet-sized, ajar.');
   log('Around it, ships. A Clade choir-fleet, silent. A Quorum ark, engines cold. A single Stillborn barge, its pilgrims pressed to the viewports, weeping with joy. All of them waiting — it becomes clear — for you. For the fragments.');
@@ -1344,6 +1580,7 @@ function arriveLocus(){
 }
 function ending(kind){
   clearChoices(); S.over=true;
+  SFX.play(kind==='seal'?'lost':'fanfare');
   let title='', body='';
   if(kind==='through'){
     title='THE COMPLETION';
@@ -1365,13 +1602,13 @@ function ending(kind){
 }
 function checkLoss(){
   if(S.over) return true;
-  if(S.hull<=0){ S.over=true; showOverlay('HULL LOSS',
+  if(S.hull<=0){ S.over=true; SFX.play('lost'); showOverlay('HULL LOSS',
     'The Endurance comes apart quietly, the way ships do — a long sigh of atmosphere, a scatter of running lights. The survey ends here. Somewhere, a pilgrim consults a liturgy and nods: this, too, was recorded.'); return true; }
-  if(!S.crew.some(c=>c.alive)){ S.over=true; showOverlay('GHOST SHIP',
+  if(!S.crew.some(c=>c.alive)){ S.over=true; SFX.play('lost'); showOverlay('GHOST SHIP',
     'The Endurance flies on, crewless, transponder honest to the last. In nine hundred years, someone will board her, read the log, and send an away team somewhere they shouldn\'t.'); return true; }
   if(S.fuel<=0 && !S.systems[S.at].station){
     const reach=S.systems.some((s,i)=>i!==S.at && !s.hidden && fuelCost(S.systems[S.at],s)<=S.fuel);
-    if(!reach){ S.over=true; showOverlay('ADRIFT',
+    if(!reach){ S.over=true; SFX.play('lost'); showOverlay('ADRIFT',
       'The tanks read zero and the nearest help is a number with too many digits. You broadcast on the survey band and wait. Eventually something answers. The log does not record what.'); return true; }
   }
   return false;
@@ -1407,7 +1644,7 @@ const AudioSys = {
     }
     const btn=$('mutebtn');
     btn.onclick=()=>{ this.muted=!this.muted;
-      btn.textContent='♪ music: '+(this.muted?'off':'on');
+      btn.textContent='♪ sound: '+(this.muted?'off':'on');
       if(this.ctx) this.master.gain.value=this.muted?0:1;
       if(!this.started && !this.muted) this.start();
     };
@@ -1450,15 +1687,18 @@ const AudioSys = {
       }
     }
   },
-  ensureSynth(kind){
-    // generative fallback score, built from the setting's furniture:
-    // explore = cold drone in open fifths; combat = low pulsing torch-rumble
-    if(this.synth[kind]) return;
+  ensureCtx(){
     if(!this.ctx){
       this.ctx=new (window.AudioContext||window.webkitAudioContext)();
       this.master=this.ctx.createGain(); this.master.gain.value=this.muted?0:1;
       this.master.connect(this.ctx.destination);
     }
+  },
+  ensureSynth(kind){
+    // generative fallback score, built from the setting's furniture:
+    // explore = cold drone in open fifths; combat = low pulsing torch-rumble
+    if(this.synth[kind]) return;
+    this.ensureCtx();
     const c=this.ctx, g=c.createGain(); g.gain.value=0; g.connect(this.master);
     if(kind==='explore'){
       const f=[55,82.41,110.6,164.5]; // A1, E2, A2(detuned), E3 — an open, hollow chord
@@ -1517,6 +1757,11 @@ function restoreState(st){
   Object.assign(S, st);
   S.combat = null; S.busy = false; S.selected = -1; S.over = false;
   if(S.view !== 'map' && S.view !== 'system') S.view = 'map';
+  // backfill personalities for saves made before crew temperaments existed
+  S.crew.forEach(c=>{ if(!c.temper) c.temper = pick(TEMPERAMENTS); if(!c.quirk) c.quirk = pick(QUIRKS); });
+  // backfill codex for saves made before the survey archive existed
+  if(!S.codex || typeof S.codex !== 'object') S.codex = {};
+  seedCodex();
 }
 function saveGame(){
   if(S.over){ log('<span class="bad">This survey has ended. There is nothing left to commit to the record.</span>'); return; }
@@ -1530,6 +1775,7 @@ function saveGame(){
     a.download = 'the-remainder-cycle-' + S.cycle.toFixed(1) + '.txt';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+    SFX.play('save');
     log(`Ship record committed to external storage — <span class="hi">${a.download}</span>. The census of this voyage now exists in two places. The Antecessorate would have approved. Probably.`,'good');
   }catch(err){
     log('<span class="bad">Save failed: the browser refused the download.</span>');
@@ -1550,6 +1796,7 @@ function loadGame(file){
     restoreState(st);
     $('overlay').style.display = 'none';
     AudioSys.set('explore');
+    SFX.play('load');
     renderCrew(); updateBars(); clearChoices();
     log(`<b class="gold">RECORD RESTORED</b> — cycle ${S.cycle.toFixed(1)}, in ${S.systems[S.at].name}. The survey resumes as if it never paused. A Stillborn crewmate, if you have one, will insist it never did.`,'gold');
     defaultChoices();
@@ -1558,10 +1805,72 @@ function loadGame(file){
   r.readAsText(file);
 }
 
+/* ------------------------------ sound effects ------------------------------ */
+/* All effects are synthesized in WebAudio — no files needed — and run through
+   AudioSys.master, so the ♪ button mutes them along with the music. */
+const SFX = {
+  play(name){
+    if(AudioSys.muted) return;
+    try{
+      AudioSys.ensureCtx();
+      const c=AudioSys.ctx, out=AudioSys.master;
+      if(c.state==='suspended') c.resume();
+      const now=c.currentTime;
+      const tone=(type,f0,f1,dur,peak,dt)=>{
+        const t=now+(dt||0);
+        const o=c.createOscillator(), g=c.createGain();
+        o.type=type; o.frequency.setValueAtTime(f0,t);
+        if(f1) o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t+dur);
+        g.gain.setValueAtTime(0,t);
+        g.gain.linearRampToValueAtTime(peak,t+.008);
+        g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+        o.connect(g); g.connect(out); o.start(t); o.stop(t+dur+.05);
+      };
+      const noise=(dur,fHigh,fLow,peak,fType,dt)=>{
+        const t=now+(dt||0);
+        const n=c.createBufferSource();
+        const buf=c.createBuffer(1,Math.max(1,c.sampleRate*dur|0),c.sampleRate);
+        const ch=buf.getChannelData(0);
+        for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1;
+        n.buffer=buf;
+        const f=c.createBiquadFilter(); f.type=fType||'bandpass'; f.Q.value=.8;
+        f.frequency.setValueAtTime(fHigh,t);
+        f.frequency.exponentialRampToValueAtTime(Math.max(40,fLow),t+dur);
+        const g=c.createGain();
+        g.gain.setValueAtTime(0,t);
+        g.gain.linearRampToValueAtTime(peak,t+.012);
+        g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+        n.connect(f); f.connect(g); g.connect(out); n.start(t);
+      };
+      switch(name){
+        case 'ui':       tone('square',1150,0,.045,.04); break;
+        case 'jump':     noise(.8,1400,90,.22,'lowpass'); tone('sine',170,42,.7,.16); break;
+        case 'kinetic':  noise(.16,3200,260,.26); tone('square',150,55,.13,.18); break;
+        case 'torpedo':  tone('sine',190,950,.3,.14); noise(.35,2400,200,.14,'lowpass',.12); break;
+        case 'hit':      tone('sine',130,38,.28,.3); noise(.22,900,110,.22,'lowpass'); break;
+        case 'vent':     noise(.85,7000,500,.13,'highpass'); break;
+        case 'evade':    noise(.4,2600,240,.16); break;
+        case 'insight':  tone('sine',660,0,.9,.13); tone('sine',990,0,1.1,.1,.08); tone('sine',1320,0,1.2,.05,.16); break;
+        case 'artifact': tone('triangle',880,0,.25,.1); tone('triangle',1320,0,.25,.1,.09); tone('triangle',1760,0,.4,.1,.18); break;
+        case 'coin':     tone('triangle',1320,1760,.12,.1); break;
+        case 'dock':     tone('square',92,58,.2,.2); noise(.15,700,120,.12,'lowpass',.04); break;
+        case 'hurt':     tone('sine',310,140,.16,.14); break;
+        case 'lost':     tone('sine',220,108,1.3,.18); tone('sine',165,82,1.3,.1,.05); break;
+        case 'fanfare':  tone('triangle',523,0,.5,.12); tone('triangle',659,0,.5,.12,.11); tone('triangle',784,0,.8,.12,.22); break;
+        case 'save':     tone('sine',880,1320,.16,.1); break;
+        case 'load':     tone('sine',1320,880,.16,.1); break;
+      }
+    }catch(err){ /* audio is decorative; never let it break the game */ }
+  },
+};
+
 /* ------------------------------ init ------------------------------ */
 function init(){
   resize(); genGalaxy();
   AudioSys.init();
+  seedCodex();
+  $('codexbtn').onclick = toggleCodex;
+  $('codexclose').onclick = toggleCodex;
   $('savebtn').onclick = saveGame;
   $('loadbtn').onclick = ()=>{
     if(S.combat){ log('<span class="bad">Cannot load with weapons free. Finish the engagement.</span>'); return; }
@@ -1578,7 +1887,7 @@ function init(){
   log('<span class="sys">♪ Music begins on your first click. Place <b>music-explore.mp3</b> and <b>music-combat.mp3</b> beside this file to use your own score — otherwise the ship hums a built-in ambient one. Use <b>⬇ save</b> / <b>⬆ load</b> in the top bar to keep your voyage as a text file.</span>','sys');
   log('Long after the Vanishing, the Antecessorate\'s heirs pick through an emptied galaxy: the <span class="o-clade">Clade</span>, who became their machines; the <span class="o-quorum">Quorum</span>, who swore never to; the <span class="o-still">Stillborn</span>, who believe it has all already happened.');
   log('You command <b class="hi">ISV Endurance</b>, a deep survey vessel out of Meridian Reach. Your Charter: chart the volume, recover what the elder civilization left behind, and — if five <span class="gold">insight fragments</span> can be assembled — learn why they went.');
-  log('<span class="sys">Click systems on the chart to jump. Click sites in a system to send away teams. Click crew names to talk to them. Dock at stations to refuel, repair, trade, and hire. Watch your heat in a fight — radiators are life.</span>','sys');
+  log('<span class="sys">Click systems on the chart to jump. Click sites in a system to send away teams. Click crew names to talk to them. Dock at stations to refuel, repair, trade, and hire. Watch your heat in a fight — radiators are life. The <b>▤ codex</b> (top bar) holds everything this voyage has learned about the Remainder; it grows as you do.</span>','sys');
   speak(S.crew[0].name, '"All decks report ready, Captain. The chart is mostly blank. I\'ve always liked it that way."');
   S.view='map';
   defaultChoices();
