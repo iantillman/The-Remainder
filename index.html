@@ -115,7 +115,10 @@
   <span class="stat"><b>Scrip</b><span id="t-cred" style="color:var(--ruin)"></span></span>
   <span class="stat"><b>Insight</b><span id="t-ins" style="color:var(--still)"></span></span>
   <span class="stat"><b>Cycle</b><span id="t-cyc"></span></span>
-  <button id="mutebtn" title="Toggle music" style="margin-left:auto;padding:3px 10px;font-size:11px">♪ music: on</button>
+  <button id="savebtn" title="Save the game state to a text file" style="margin-left:auto;padding:3px 10px;font-size:11px">⬇ save</button>
+  <button id="loadbtn" title="Load a saved game from a text file" style="padding:3px 10px;font-size:11px">⬆ load</button>
+  <input type="file" id="loadfile" accept=".txt,.json,text/plain,application/json" style="display:none">
+  <button id="mutebtn" title="Toggle music" style="padding:3px 10px;font-size:11px">♪ music: on</button>
 </div>
 <div id="main">
   <div id="stage">
@@ -1485,14 +1488,94 @@ const AudioSys = {
   },
 };
 
+/* ------------------------------ save / load ------------------------------ */
+/* Saves are plain JSON in a .txt file: { ver, saved, state } where state is a
+   full snapshot of S (combat and UI transients stripped). Loading validates
+   the file BEFORE touching the running game, so a bad file changes nothing. */
+const SAVE_VERSION = 1;
+function snapshotState(){
+  const st = JSON.parse(JSON.stringify(S));   // S is pure data outside combat
+  st.combat = null;
+  st.busy = false;
+  st.selected = -1;
+  if(st.view !== 'map' && st.view !== 'system') st.view = 'map';
+  return st;
+}
+function validateSnapshot(st){
+  return st && typeof st === 'object'
+    && Array.isArray(st.systems) && st.systems.length > 1
+    && Array.isArray(st.crew)
+    && typeof st.hull === 'number' && typeof st.fuel === 'number'
+    && typeof st.cycle === 'number' && typeof st.at === 'number'
+    && st.at >= 0 && st.at < st.systems.length
+    && st.cargo && typeof st.cargo === 'object'
+    && Array.isArray(st.artifacts)
+    && st.systems.every(s => s && typeof s.x === 'number' && typeof s.y === 'number' && typeof s.name === 'string' && Array.isArray(s.sites))
+    && st.crew.every(c => c && typeof c.name === 'string' && c.skills && typeof c.hp === 'number');
+}
+function restoreState(st){
+  Object.assign(S, st);
+  S.combat = null; S.busy = false; S.selected = -1; S.over = false;
+  if(S.view !== 'map' && S.view !== 'system') S.view = 'map';
+}
+function saveGame(){
+  if(S.over){ log('<span class="bad">This survey has ended. There is nothing left to commit to the record.</span>'); return; }
+  if(S.combat){ log('<span class="bad">Cannot save with weapons free. The record keeper has taken cover.</span>'); return; }
+  if(S.busy){ log('<span class="bad">Cannot save mid-action. Resolve the current situation first.</span>'); return; }
+  try{
+    const payload = {ver:SAVE_VERSION, saved:new Date().toISOString(), state:snapshotState()};
+    const blob = new Blob([JSON.stringify(payload)], {type:'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'the-remainder-cycle-' + S.cycle.toFixed(1) + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+    log(`Ship record committed to external storage — <span class="hi">${a.download}</span>. The census of this voyage now exists in two places. The Antecessorate would have approved. Probably.`,'good');
+  }catch(err){
+    log('<span class="bad">Save failed: the browser refused the download.</span>');
+  }
+}
+function loadGame(file){
+  const r = new FileReader();
+  r.onload = ()=>{
+    let st = null;
+    try{
+      const payload = JSON.parse(r.result);
+      if(payload && payload.ver === SAVE_VERSION && validateSnapshot(payload.state)) st = payload.state;
+    }catch(err){ /* fall through to the error message below */ }
+    if(!st){
+      log('<span class="bad">That file is not a legible ship record. Load aborted — the current game is unchanged.</span>');
+      return;
+    }
+    restoreState(st);
+    $('overlay').style.display = 'none';
+    AudioSys.set('explore');
+    renderCrew(); updateBars(); clearChoices();
+    log(`<b class="gold">RECORD RESTORED</b> — cycle ${S.cycle.toFixed(1)}, in ${S.systems[S.at].name}. The survey resumes as if it never paused. A Stillborn crewmate, if you have one, will insist it never did.`,'gold');
+    defaultChoices();
+  };
+  r.onerror = ()=>log('<span class="bad">Could not read that file. Load aborted — the current game is unchanged.</span>');
+  r.readAsText(file);
+}
+
 /* ------------------------------ init ------------------------------ */
 function init(){
   resize(); genGalaxy();
   AudioSys.init();
+  $('savebtn').onclick = saveGame;
+  $('loadbtn').onclick = ()=>{
+    if(S.combat){ log('<span class="bad">Cannot load with weapons free. Finish the engagement.</span>'); return; }
+    $('loadfile').click();
+  };
+  $('loadfile').addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if(f) loadGame(f);
+    e.target.value = '';
+  });
   for(let i=0;i<6;i++) S.crew.push(genCrew());
   renderCrew(); updateBars();
   log('<b class="gold">THE REMAINDER</b> — Deep Survey Command','gold');
-  log('<span class="sys">♪ Music begins on your first click. Place <b>music-explore.mp3</b> and <b>music-combat.mp3</b> beside this file to use your own score — otherwise the ship hums a built-in ambient one.</span>','sys');
+  log('<span class="sys">♪ Music begins on your first click. Place <b>music-explore.mp3</b> and <b>music-combat.mp3</b> beside this file to use your own score — otherwise the ship hums a built-in ambient one. Use <b>⬇ save</b> / <b>⬆ load</b> in the top bar to keep your voyage as a text file.</span>','sys');
   log('Long after the Vanishing, the Antecessorate\'s heirs pick through an emptied galaxy: the <span class="o-clade">Clade</span>, who became their machines; the <span class="o-quorum">Quorum</span>, who swore never to; the <span class="o-still">Stillborn</span>, who believe it has all already happened.');
   log('You command <b class="hi">ISV Endurance</b>, a deep survey vessel out of Meridian Reach. Your Charter: chart the volume, recover what the elder civilization left behind, and — if five <span class="gold">insight fragments</span> can be assembled — learn why they went.');
   log('<span class="sys">Click systems on the chart to jump. Click sites in a system to send away teams. Click crew names to talk to them. Dock at stations to refuel, repair, trade, and hire. Watch your heat in a fight — radiators are life.</span>','sys');
