@@ -119,6 +119,49 @@
   .cx-bd{padding:2px 10px 10px 24px; color:var(--dim); line-height:1.65; max-width:74ch}
   .cx-bd p{margin:0 0 8px}
   .cx-bd .cx-add{color:var(--still)}
+  /* ---------- title screen ---------- */
+  #titlescreen{
+    position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    background:var(--void); overflow:hidden; text-align:center;
+  }
+  #titlescreen::before, #titlescreen::after{
+    content:''; position:absolute; top:0; left:0; width:2px; height:2px; border-radius:50%;
+  }
+  #titlescreen::before{
+    box-shadow: 8vw 12vh 0 0 #f8f8f2, 22vw 78vh 0 0 #6272a4, 31vw 28vh 0 1px #9aa4d2,
+      44vw 88vh 0 0 #6272a4, 57vw 9vh 0 0 #f8f8f2, 63vw 64vh 0 0 #6272a4,
+      76vw 33vh 0 1px #f8f8f2, 88vw 71vh 0 0 #9aa4d2, 94vw 16vh 0 0 #6272a4,
+      14vw 51vh 0 0 #6272a4, 49vw 42vh 0 0 #44475a, 70vw 92vh 0 0 #6272a4;
+    animation: ts-tw 7s ease-in-out infinite alternate;
+  }
+  #titlescreen::after{
+    box-shadow: 5vw 67vh 0 0 #6272a4, 18vw 21vh 0 0 #9aa4d2, 37vw 7vh 0 0 #6272a4,
+      41vw 59vh 0 1px #f8f8f2, 53vw 81vh 0 0 #6272a4, 68vw 23vh 0 0 #9aa4d2,
+      82vw 48vh 0 0 #6272a4, 91vw 87vh 0 1px #f8f8f2, 27vw 95vh 0 0 #6272a4;
+    animation: ts-tw 9s ease-in-out infinite alternate-reverse;
+  }
+  .ts-inner{position:relative; z-index:2; padding:30px; max-width:640px}
+  .ts-eyebrow{letter-spacing:.5em; color:var(--faint); font-size:11px; text-transform:uppercase; margin-bottom:16px}
+  .ts-title{
+    font-size:clamp(26px,6vw,46px); letter-spacing:.4em; color:var(--ruin); font-weight:700;
+    text-transform:uppercase; margin-left:.4em;
+    animation: ts-glow 5s ease-in-out infinite alternate;
+  }
+  .ts-sub{color:var(--dim); line-height:1.8; margin:20px 0 36px; font-size:13px}
+  .ts-enter{
+    color:var(--clade); letter-spacing:.25em; font-size:13px; cursor:pointer;
+    animation: ts-blink 1.7s steps(2) infinite; user-select:none;
+  }
+  #ts-menu{display:none; flex-direction:column; gap:10px; align-items:center}
+  #ts-menu button{min-width:280px; text-align:center; font-size:13px; padding:11px}
+  .ts-hint{color:var(--faint); font-size:10px; margin-top:16px; max-width:52ch; line-height:1.7}
+  #ts-status{color:var(--alert); font-size:11px; min-height:15px; margin-top:6px}
+  @keyframes ts-glow{from{text-shadow:0 0 10px rgba(255,184,108,.18)}to{text-shadow:0 0 28px rgba(255,184,108,.5)}}
+  @keyframes ts-blink{50%{opacity:.2}}
+  @keyframes ts-tw{from{opacity:.5}to{opacity:1}}
+  @media (prefers-reduced-motion: reduce){
+    .ts-title,.ts-enter,#titlescreen::before,#titlescreen::after{animation:none}
+  }
 </style>
 </head>
 <body>
@@ -158,6 +201,22 @@
       <h3>Ship Record</h3>
       <div id="log"></div>
       <div id="choices"></div>
+    </div>
+  </div>
+</div>
+<div id="titlescreen">
+  <div class="ts-inner">
+    <div class="ts-eyebrow">Deep Survey Command</div>
+    <div class="ts-title">The Remainder</div>
+    <div class="ts-sub">Long after the Vanishing, the heirs of the Antecessorate pick through<br>
+    the bones of a galaxy that was emptied on purpose.<br>
+    One survey ship. Five fragments. One coordinate at the rim.</div>
+    <div id="ts-enter" class="ts-enter">▸ transmit to begin</div>
+    <div id="ts-menu">
+      <button id="ts-new" class="gold">Begin a new survey</button>
+      <button id="ts-load">Load a saved record</button>
+      <div class="ts-hint">♪ generative score active — place music-title.mp3, music-explore.mp3, and music-combat.mp3 beside this file for a custom soundtrack</div>
+      <div id="ts-status"></div>
     </div>
   </div>
 </div>
@@ -957,6 +1016,7 @@ function draw(){
     cx.fillRect(x,y,st.z>.8?1.6:1,st.z>.8?1.6:1);
   }
   cx.restore();
+  if(!S.systems.length){ requestAnimationFrame(draw); return; }
   if(S.view==='map') drawMap();
   else if(S.view==='system') drawSystem();
   else if(S.view==='combat') drawCombat();
@@ -1625,14 +1685,16 @@ function showOverlay(title, body){
 }
 
 /* ------------------------------ music ------------------------------ */
-/* Drop these two files next to this HTML file to score the game:
+/* Drop these files next to this HTML file to score the game:
+     music-title.mp3    — loops on the start screen
      music-explore.mp3  — loops on the chart, in systems, at stations
      music-combat.mp3   — loops during weapons-free
-   Either may be omitted: anything missing falls back to a built-in
-   generative ambient score (WebAudio), so the file still works alone.
-   Browsers require a user gesture before audio — music starts on your
+   Any may be omitted: anything missing falls back to a built-in
+   generative score (WebAudio) — the title screen gets a slow, brooding
+   8-bit piece in A minor; exploration a cold drone; combat a torch-rumble.
+   Browsers require a user gesture before audio — sound starts on your
    first click or keypress. */
-const MUSIC_FILES = { explore:'music-explore.mp3', combat:'music-combat.mp3' };
+const MUSIC_FILES = { title:'music-title.mp3', explore:'music-explore.mp3', combat:'music-combat.mp3' };
 const AudioSys = {
   started:false, muted:false, mode:null, tracks:{}, targets:{}, synth:{}, ctx:null, vol:0.35,
   init(){
@@ -1671,7 +1733,7 @@ const AudioSys = {
         g.value += clamp(t-g.value, -.004,.004);
       }
     },100);
-    this.set(S.view==='combat'?'combat':'explore', true);
+    this.set(TITLE_ACTIVE ? 'title' : (S.view==='combat'?'combat':'explore'), true);
   },
   set(mode, force){
     if(!this.started || (mode===this.mode && !force)) return;
@@ -1700,7 +1762,60 @@ const AudioSys = {
     if(this.synth[kind]) return;
     this.ensureCtx();
     const c=this.ctx, g=c.createGain(); g.gain.value=0; g.connect(this.master);
-    if(kind==='explore'){
+    if(kind==='title'){
+      /* brooding 8-bit nocturne — 58 BPM, A minor with a phrygian lean.
+         pure square & triangle voices, stepped envelopes: chip rules. */
+      const spb=60/58, LOOP=16;
+      const PAT=[
+        // bass — square, the slow heart: Am · Em · F · E
+        {t:0,  f:55.00, d:3.5, w:'square',   v:.50},
+        {t:4,  f:41.20, d:3.5, w:'square',   v:.46},
+        {t:8,  f:43.65, d:3.5, w:'square',   v:.50},
+        {t:12, f:41.20, d:3.8, w:'square',   v:.50},
+        // pad — triangle fifths, an octave up, cold
+        {t:0,  f:110.0, d:3.8, w:'triangle', v:.26},
+        {t:4,  f:82.41, d:3.8, w:'triangle', v:.26},
+        {t:8,  f:87.31, d:3.8, w:'triangle', v:.26},
+        {t:12, f:82.41, d:3.8, w:'triangle', v:.26},
+        // melody — sparse square, mostly questions
+        {t:1,   f:220.00, d:1.5, w:'square', v:.20},
+        {t:3,   f:261.63, d:.75, w:'square', v:.18},
+        {t:5.5, f:246.94, d:1.0, w:'square', v:.19},
+        {t:7,   f:196.00, d:.8,  w:'square', v:.17},
+        {t:9,   f:220.00, d:2.0, w:'square', v:.20},
+        {t:12.5,f:174.61, d:1.0, w:'square', v:.18},
+        {t:14,  f:164.81, d:2.0, w:'square', v:.20},
+        // a far, rare bell — triangle, two glints per loop
+        {t:6.5, f:523.25, d:.4,  w:'triangle', v:.10},
+        {t:15,  f:440.00, d:.7,  w:'triangle', v:.10},
+      ];
+      let nextLoop=c.currentTime+.15;
+      const schedule=()=>{
+        while(nextLoop < c.currentTime+1.5){
+          const base=nextLoop;
+          PAT.forEach(n=>{
+            const o=c.createOscillator(), og=c.createGain();
+            o.type=n.w; o.frequency.value=n.f;
+            const st=base+n.t*spb, en=st+n.d*spb;
+            og.gain.setValueAtTime(0,st);
+            og.gain.linearRampToValueAtTime(n.v,st+.02);
+            og.gain.setValueAtTime(n.v, Math.max(st+.03, en-.1));
+            og.gain.linearRampToValueAtTime(0,en);
+            o.connect(og); og.connect(g);
+            o.start(st); o.stop(en+.05);
+          });
+          nextLoop += LOOP*spb;
+        }
+      };
+      schedule();
+      setInterval(()=>{
+        try{
+          if((this.targets.title||0)>0 && !this.muted) schedule();
+          else nextLoop=c.currentTime+.15;   // idle: don't queue silent loops
+        }catch(e){}
+      }, 400);
+      this.synth[kind]={gain:g, level:.12};
+    } else if(kind==='explore'){
       const f=[55,82.41,110.6,164.5]; // A1, E2, A2(detuned), E3 — an open, hollow chord
       f.forEach((hz,i)=>{
         const o=c.createOscillator(); o.type='sine'; o.frequency.value=hz;
@@ -1764,6 +1879,7 @@ function restoreState(st){
   seedCodex();
 }
 function saveGame(){
+  if(!S.systems.length){ return; }
   if(S.over){ log('<span class="bad">This survey has ended. There is nothing left to commit to the record.</span>'); return; }
   if(S.combat){ log('<span class="bad">Cannot save with weapons free. The record keeper has taken cover.</span>'); return; }
   if(S.busy){ log('<span class="bad">Cannot save mid-action. Resolve the current situation first.</span>'); return; }
@@ -1791,17 +1907,22 @@ function loadGame(file){
     }catch(err){ /* fall through to the error message below */ }
     if(!st){
       log('<span class="bad">That file is not a legible ship record. Load aborted — the current game is unchanged.</span>');
+      if(TITLE_ACTIVE){ const el=$('ts-status'); if(el) el.textContent='That file is not a legible ship record.'; }
       return;
     }
     restoreState(st);
     $('overlay').style.display = 'none';
+    if(TITLE_ACTIVE) hideTitle();
     AudioSys.set('explore');
     SFX.play('load');
     renderCrew(); updateBars(); clearChoices();
     log(`<b class="gold">RECORD RESTORED</b> — cycle ${S.cycle.toFixed(1)}, in ${S.systems[S.at].name}. The survey resumes as if it never paused. A Stillborn crewmate, if you have one, will insist it never did.`,'gold');
     defaultChoices();
   };
-  r.onerror = ()=>log('<span class="bad">Could not read that file. Load aborted — the current game is unchanged.</span>');
+  r.onerror = ()=>{
+    log('<span class="bad">Could not read that file. Load aborted — the current game is unchanged.</span>');
+    if(TITLE_ACTIVE){ const el=$('ts-status'); if(el) el.textContent='Could not read that file.'; }
+  };
   r.readAsText(file);
 }
 
@@ -1864,11 +1985,32 @@ const SFX = {
   },
 };
 
-/* ------------------------------ init ------------------------------ */
-function init(){
-  resize(); genGalaxy();
-  AudioSys.init();
+/* ------------------------------ init & title flow ------------------------------ */
+let TITLE_ACTIVE=true;
+function hideTitle(){
+  TITLE_ACTIVE=false;
+  $('titlescreen').style.display='none';
+  AudioSys.set('explore');
+}
+function startNewGame(){
+  genGalaxy();
+  S.crew.length=0;
+  for(let i=0;i<6;i++) S.crew.push(genCrew());
   seedCodex();
+  renderCrew(); updateBars();
+  log('<b class="gold">THE REMAINDER</b> — Deep Survey Command','gold');
+  log('<span class="sys">♪ Place <b>music-title.mp3</b>, <b>music-explore.mp3</b>, and <b>music-combat.mp3</b> beside this file to use your own score — otherwise the ship hums a built-in one.</span>','sys');
+  log('Long after the Vanishing, the Antecessorate\'s heirs pick through an emptied galaxy: the <span class="o-clade">Clade</span>, who became their machines; the <span class="o-quorum">Quorum</span>, who swore never to; the <span class="o-still">Stillborn</span>, who believe it has all already happened.');
+  log('You command <b class="hi">ISV Endurance</b>, a deep survey vessel out of Meridian Reach. Your Charter: chart the volume, recover what the elder civilization left behind, and — if five <span class="gold">insight fragments</span> can be assembled — learn why they went.');
+  log('<span class="sys">Click systems on the chart to jump. Click sites in a system to send away teams. Click crew names to talk to them. Dock at stations to refuel, repair, trade, and hire. Watch your heat in a fight — radiators are life. The <b>▤ codex</b> (top bar) holds everything this voyage has learned about the Remainder; it grows as you do.</span>','sys');
+  speak(S.crew[0].name, '"All decks report ready, Captain. The chart is mostly blank. I\'ve always liked it that way."');
+  S.view='map';
+  defaultChoices();
+  hideTitle();
+}
+function init(){
+  resize();
+  AudioSys.init();
   $('codexbtn').onclick = toggleCodex;
   $('codexclose').onclick = toggleCodex;
   $('savebtn').onclick = saveGame;
@@ -1881,16 +2023,14 @@ function init(){
     if(f) loadGame(f);
     e.target.value = '';
   });
-  for(let i=0;i<6;i++) S.crew.push(genCrew());
-  renderCrew(); updateBars();
-  log('<b class="gold">THE REMAINDER</b> — Deep Survey Command','gold');
-  log('<span class="sys">♪ Music begins on your first click. Place <b>music-explore.mp3</b> and <b>music-combat.mp3</b> beside this file to use your own score — otherwise the ship hums a built-in ambient one. Use <b>⬇ save</b> / <b>⬆ load</b> in the top bar to keep your voyage as a text file.</span>','sys');
-  log('Long after the Vanishing, the Antecessorate\'s heirs pick through an emptied galaxy: the <span class="o-clade">Clade</span>, who became their machines; the <span class="o-quorum">Quorum</span>, who swore never to; the <span class="o-still">Stillborn</span>, who believe it has all already happened.');
-  log('You command <b class="hi">ISV Endurance</b>, a deep survey vessel out of Meridian Reach. Your Charter: chart the volume, recover what the elder civilization left behind, and — if five <span class="gold">insight fragments</span> can be assembled — learn why they went.');
-  log('<span class="sys">Click systems on the chart to jump. Click sites in a system to send away teams. Click crew names to talk to them. Dock at stations to refuel, repair, trade, and hire. Watch your heat in a fight — radiators are life. The <b>▤ codex</b> (top bar) holds everything this voyage has learned about the Remainder; it grows as you do.</span>','sys');
-  speak(S.crew[0].name, '"All decks report ready, Captain. The chart is mostly blank. I\'ve always liked it that way."');
-  S.view='map';
-  defaultChoices();
+  // title screen: first interaction reveals the menu (and wakes the audio engine)
+  $('titlescreen').addEventListener('pointerdown', ()=>{
+    $('ts-enter').style.display='none';
+    $('ts-menu').style.display='flex';
+  }, {once:true});
+  $('ts-new').onclick = (ev)=>{ ev.stopPropagation(); SFX.play('ui'); startNewGame(); };
+  $('ts-load').onclick = (ev)=>{ ev.stopPropagation(); SFX.play('ui'); $('loadfile').click(); };
+  updateBars();
   requestAnimationFrame(draw);
 }
 init();
